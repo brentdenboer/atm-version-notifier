@@ -31,8 +31,9 @@ var levelStrings = map[Level]string{
 
 // Logger represents our custom logger
 type Logger struct {
-	logger *log.Logger
-	level  Level
+	logger  *log.Logger
+	level   Level
+	testing bool // Used to control exit behavior in tests
 }
 
 // New creates a new Logger instance
@@ -51,8 +52,9 @@ func New(writers ...io.Writer) *Logger {
 	}
 
 	return &Logger{
-		logger: log.New(writer, "", 0),
-		level:  INFO, // Default level
+		logger:  log.New(writer, "", 0),
+		level:   INFO, // Default level
+		testing: false,
 	}
 }
 
@@ -61,10 +63,15 @@ func (l *Logger) SetLevel(level Level) {
 	l.level = level
 }
 
+// SetTesting sets the testing mode for the logger
+func (l *Logger) SetTesting(testing bool) {
+	l.testing = testing
+}
+
 // formatMessage formats the log message with timestamp, level, and caller info
 func (l *Logger) formatMessage(level Level, format string, args ...interface{}) string {
 	// Get caller information
-	_, file, line, ok := runtime.Caller(2)
+	_, file, line, ok := runtime.Caller(3)
 	callerInfo := "???"
 	if ok {
 		callerInfo = fmt.Sprintf("%s:%d", filepath.Base(file), line)
@@ -79,7 +86,7 @@ func (l *Logger) formatMessage(level Level, format string, args ...interface{}) 
 // log performs the actual logging
 func (l *Logger) log(level Level, format string, args ...interface{}) {
 	if level >= l.level {
-		l.logger.Output(2, l.formatMessage(level, format, args...))
+		l.logger.Output(3, l.formatMessage(level, format, args...))
 	}
 }
 
@@ -106,6 +113,9 @@ func (l *Logger) Error(format string, args ...interface{}) {
 // Fatal logs a fatal message and exits
 func (l *Logger) Fatal(format string, args ...interface{}) {
 	l.log(FATAL, format, args...)
+	if l.testing {
+		panic("fatal error in testing mode")
+	}
 	os.Exit(1)
 }
 
@@ -113,14 +123,17 @@ func (l *Logger) Fatal(format string, args ...interface{}) {
 var defaultLogger = New(os.Stdout)
 
 // Package-level functions that use the default logger
-func Debug(format string, args ...interface{}) { defaultLogger.Debug(format, args...) }
-func Info(format string, args ...interface{})  { defaultLogger.Info(format, args...) }
-func Warn(format string, args ...interface{})  { defaultLogger.Warn(format, args...) }
-func Error(format string, args ...interface{}) { defaultLogger.Error(format, args...) }
-func Fatal(format string, args ...interface{}) { defaultLogger.Fatal(format, args...) }
+func Debug(format string, args ...interface{}) { defaultLogger.log(DEBUG, format, args...) }
+func Info(format string, args ...interface{})  { defaultLogger.log(INFO, format, args...) }
+func Warn(format string, args ...interface{})  { defaultLogger.log(WARNING, format, args...) }
+func Error(format string, args ...interface{}) { defaultLogger.log(ERROR, format, args...) }
+func Fatal(format string, args ...interface{}) { defaultLogger.log(FATAL, format, args...) }
 
 // SetLevel sets the level for the default logger
 func SetLevel(level Level) { defaultLogger.SetLevel(level) }
 
 // SetOutput sets the output for the default logger
 func SetOutput(w io.Writer) { defaultLogger = New(w) }
+
+// SetTesting sets the testing mode for the default logger
+func SetTesting(testing bool) { defaultLogger.SetTesting(testing) }
