@@ -14,54 +14,44 @@ type Message struct {
 	Content string `json:"content"`
 }
 
-// NotificationFunc is a function type for sending version update notifications
-type NotificationFunc func(webhookURL, modpackName, oldVersion, newVersion string) error
+// SendVersionUpdateNotification sends a version update notification to Discord
+func SendVersionUpdateNotification(webhookURL, modpackName, oldVersion, newVersion string) error {
+	if webhookURL == "" {
+		return fmt.Errorf("empty webhook URL")
+	}
 
-// defaultSendVersionUpdateNotification is the default implementation for sending notifications
-func defaultSendVersionUpdateNotification(webhookURL, modpackName, oldVersion, newVersion string) error {
 	message := Message{
-		Content: fmt.Sprintf("🎮 **%s Update Detected!**\n\nThe modpack version has changed:\n- Old version: `%s`\n- New version: `%s`",
+		Content: fmt.Sprintf(
+			`🎮 **%s Update Detected!**
+
+The modpack version has changed:
+- Old version: %q
+- New version: %q`,
 			modpackName, oldVersion, newVersion),
 	}
 
 	jsonData, err := json.Marshal(message)
 	if err != nil {
-		return fmt.Errorf("failed to marshal discord message: %w", err)
+		return fmt.Errorf("failed to marshal message %+v: %w", message, err)
 	}
 
-	// Create a client with timeout
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-
-	// Create request
+	client := &http.Client{Timeout: 10 * time.Second}
 	req, err := http.NewRequest("POST", webhookURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	// Send request
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to send discord webhook: %w", err)
+		return fmt.Errorf("webhook request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// Read response body for error details
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	// Check response status
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("discord webhook returned status %d: %s", resp.StatusCode, string(body))
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return fmt.Errorf("unexpected status %d: %q", resp.StatusCode, string(body))
 	}
 
 	return nil
 }
-
-// SendVersionUpdateNotification is the current function used for sending notifications
-// It can be replaced with a mock for testing
-var SendVersionUpdateNotification NotificationFunc = defaultSendVersionUpdateNotification

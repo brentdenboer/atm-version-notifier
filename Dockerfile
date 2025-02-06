@@ -37,6 +37,8 @@ WORKDIR /app
 # Copy the binary from builder
 COPY --from=builder /app/atm10-version-monitor .
 
+RUN chmod +x atm10-version-monitor
+
 # Create directories for volumes and set permissions
 RUN mkdir -p /data /reference-data && \
     chown -R appuser:appgroup /app /data /reference-data
