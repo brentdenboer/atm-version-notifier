@@ -1,140 +1,137 @@
 package logger
 
 import (
-	"fmt"
 	"io"
-	"log"
 	"os"
-	"path/filepath"
-	"runtime"
-	"time"
+	"strings"
+
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 // Level represents the logging level
-type Level int
+type Level string
 
 const (
-	DEBUG Level = iota
-	INFO
-	WARNING
-	ERROR
-	FATAL
+	DEBUG   Level = "debug"
+	INFO    Level = "info"
+	WARNING Level = "warn"
+	ERROR   Level = "error"
+	FATAL   Level = "fatal"
 )
 
-var levelStrings = map[Level]string{
-	DEBUG:   "DEBUG",
-	INFO:    "INFO",
-	WARNING: "WARN",
-	ERROR:   "ERROR",
-	FATAL:   "FATAL",
+var (
+	defaultLogger *zap.SugaredLogger
+	levelAtom     zap.AtomicLevel // Atomic level for dynamic level changes
+)
+
+func init() {
+	levelAtom = zap.NewAtomicLevel()
+	levelAtom.SetLevel(zapcore.InfoLevel)
+
+	// Start with a default stdout logger using atomic level
+	SetOutput(os.Stdout)
 }
 
-// Logger represents our custom logger
-type Logger struct {
-	logger  *log.Logger
-	level   Level
-	testing bool // Used to control exit behavior in tests
+// New creates a new logger instance with the given writers
+func New(writers ...io.Writer) *zap.SugaredLogger {
+	var cores []zapcore.Core
+
+	// Default encoder config for human-readable output
+	encoderConfig := zapcore.EncoderConfig{
+		TimeKey:        "time",
+		LevelKey:       "level",
+		NameKey:        "logger",
+		CallerKey:      "caller",
+		MessageKey:     "msg",
+		StacktraceKey:  "stacktrace",
+		LineEnding:     zapcore.DefaultLineEnding,
+		EncodeLevel:    zapcore.CapitalLevelEncoder,
+		EncodeTime:     zapcore.ISO8601TimeEncoder,
+		EncodeDuration: zapcore.StringDurationEncoder,
+		EncodeCaller:   zapcore.ShortCallerEncoder,
+	}
+
+	// Create a core for each writer
+	for _, w := range writers {
+		var encoder zapcore.Encoder
+		if _, isFile := w.(*os.File); isFile {
+			encoder = zapcore.NewJSONEncoder(encoderConfig)
+		} else {
+			encoder = zapcore.NewConsoleEncoder(encoderConfig)
+		}
+
+		core := zapcore.NewCore(
+			encoder,
+			zapcore.AddSync(w),
+			levelAtom,
+		)
+		cores = append(cores, core)
+	}
+
+	// Create a logger with all cores
+	logger := zap.New(
+		zapcore.NewTee(cores...),
+		zap.AddCaller(),
+		zap.AddCallerSkip(1),
+	)
+
+	return logger.Sugar()
 }
 
-// New creates a new Logger instance
-func New(writers ...io.Writer) *Logger {
-	// If no writers provided, default to stdout
+// SetOutput sets the output for the default logger
+func SetOutput(writers ...io.Writer) {
 	if len(writers) == 0 {
 		writers = []io.Writer{os.Stdout}
 	}
-
-	// Create multi-writer if multiple writers provided
-	var writer io.Writer
-	if len(writers) == 1 {
-		writer = writers[0]
-	} else {
-		writer = io.MultiWriter(writers...)
-	}
-
-	return &Logger{
-		logger:  log.New(writer, "", 0),
-		level:   INFO, // Default level
-		testing: false,
-	}
+	defaultLogger = New(writers...)
 }
 
 // SetLevel sets the minimum logging level
-func (l *Logger) SetLevel(level Level) {
-	l.level = level
-}
-
-// SetTesting sets the testing mode for the logger
-func (l *Logger) SetTesting(testing bool) {
-	l.testing = testing
-}
-
-// formatMessage formats the log message with timestamp, level, and caller info
-func (l *Logger) formatMessage(level Level, format string, args ...interface{}) string {
-	// Get caller information
-	_, file, line, ok := runtime.Caller(3)
-	callerInfo := "???"
-	if ok {
-		callerInfo = fmt.Sprintf("%s:%d", filepath.Base(file), line)
+func SetLevel(level Level) {
+	var zapLevel zapcore.Level
+	switch strings.ToLower(string(level)) {
+	case "debug":
+		zapLevel = zapcore.DebugLevel
+	case "info":
+		zapLevel = zapcore.InfoLevel
+	case "warn":
+		zapLevel = zapcore.WarnLevel
+	case "error":
+		zapLevel = zapcore.ErrorLevel
+	case "fatal":
+		zapLevel = zapcore.FatalLevel
+	default:
+		zapLevel = zapcore.InfoLevel
 	}
-
-	// Format the message
-	msg := fmt.Sprintf(format, args...)
-	timestamp := time.Now().Format("2006/01/02 15:04:05")
-	return fmt.Sprintf("%s [%s] %s: %s", timestamp, levelStrings[level], callerInfo, msg)
+	levelAtom.SetLevel(zapLevel)
 }
 
-// log performs the actual logging
-func (l *Logger) log(level Level, format string, args ...interface{}) {
-	if level >= l.level {
-		l.logger.Output(3, l.formatMessage(level, format, args...))
+// Package-level logging functions that use the default logger
+func Debug(format string, args ...interface{}) {
+	defaultLogger.Debugf(format, args...)
+}
+
+func Info(format string, args ...interface{}) {
+	defaultLogger.Infof(format, args...)
+}
+
+func Warn(format string, args ...interface{}) {
+	defaultLogger.Warnf(format, args...)
+}
+
+func Error(format string, args ...interface{}) {
+	defaultLogger.Errorf(format, args...)
+}
+
+func Fatal(format string, args ...interface{}) {
+	defaultLogger.Fatalf(format, args...)
+}
+
+// Sync ensures all buffered logs are written
+func Sync() error {
+	if defaultLogger != nil {
+		return defaultLogger.Sync()
 	}
+	return nil
 }
-
-// Debug logs a debug message
-func (l *Logger) Debug(format string, args ...interface{}) {
-	l.log(DEBUG, format, args...)
-}
-
-// Info logs an info message
-func (l *Logger) Info(format string, args ...interface{}) {
-	l.log(INFO, format, args...)
-}
-
-// Warn logs a warning message
-func (l *Logger) Warn(format string, args ...interface{}) {
-	l.log(WARNING, format, args...)
-}
-
-// Error logs an error message
-func (l *Logger) Error(format string, args ...interface{}) {
-	l.log(ERROR, format, args...)
-}
-
-// Fatal logs a fatal message and exits
-func (l *Logger) Fatal(format string, args ...interface{}) {
-	const fatalFormat = "%s"
-	l.log(FATAL, fatalFormat, fmt.Sprintf(format, args...))
-	if l.testing {
-		panic("fatal error in testing mode")
-	}
-	os.Exit(1)
-}
-
-// Default logger instance
-var defaultLogger = New(os.Stdout)
-
-// Package-level functions that use the default logger
-func Debug(format string, args ...interface{}) { defaultLogger.log(DEBUG, format, args...) }
-func Info(format string, args ...interface{})  { defaultLogger.log(INFO, format, args...) }
-func Warn(format string, args ...interface{})  { defaultLogger.log(WARNING, format, args...) }
-func Error(format string, args ...interface{}) { defaultLogger.log(ERROR, format, args...) }
-func Fatal(format string, args ...interface{}) { defaultLogger.log(FATAL, format, args...) }
-
-// SetLevel sets the level for the default logger
-func SetLevel(level Level) { defaultLogger.SetLevel(level) }
-
-// SetOutput sets the output for the default logger
-func SetOutput(w io.Writer) { defaultLogger = New(w) }
-
-// SetTesting sets the testing mode for the default logger
-func SetTesting(testing bool) { defaultLogger.SetTesting(testing) }

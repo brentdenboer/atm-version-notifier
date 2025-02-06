@@ -1,49 +1,38 @@
 # ATM10 Modpack Version Monitor
 
-This application is designed to monitor the version of the "All The Mods 10" (ATM10) modpack running on your server and send a Discord notification via webhook when the version changes.
+This application monitors the "All The Mods 10" (ATM10) modpack version on a server and sends a Discord notification via webhook when the version changes. It's available on Docker Hub as `brentdboer/atm10-version-notifier`.
 
 ## Overview
 
-The application works by:
+The application's core functionality is as follows:
 
-1. **Mounting the ATM10 data volume:** It mounts the `atm10_data` Docker volume (where your ATM10 server files are located) in read-only mode.
-2. **Reading the `bcc-common.toml` file:** It reads the `/data/config/bcc-common.toml` file within the mounted volume to extract the `modpackName` and `modpackVersion`.
-3. **Saving version information:** It saves the `modpackName` and `modpackVersion` to a reference file in a dedicated volume.
-4. **Checking for changes:** It periodically checks if the version in `bcc-common.toml` has changed compared to the saved version by monitoring for file modifications.
-5. **Discord Notification:** If the version has changed, it sends a message to a designated Discord channel via a webhook, notifying you of the update.
+1.  **Configuration:** Loads settings (Discord webhook URL, file paths) from environment variables.
+2.  **Version Extraction:** Reads the `modpackName` and `modpackVersion` from `/data/config/bcc-common.toml` within a mounted volume.
+3.  **Persistent Reference:** Stores the last known version in `/reference-data/version_reference.json`.
+4.  **Change Detection:** Monitors `bcc-common.toml` for modifications.  On change, it re-reads the file and compares the new version to the reference.
+5.  **Discord Notifications:** Sends a Discord message via webhook if a version difference is detected.
+6. **Continuous Monitoring**: using `fsnotify`.
+7. **Robust Error Handling**: Descriptive error messages and context wrapping (`%w`).
+8. **Structured Logging**:  Uber Zap logging to stdout (console-friendly) and a log file (`app.log`, JSON format).  Sensitive data is masked.
+9. **Atomic Reference Updates**: Preventing data corruption.
+10. **Input Validation**:  Validates environment variables, TOML configuration, and reference file data.
+11. **Debouncing**: Prevents multiple notifications for rapid file changes.
+12. **Secure Dockerfile**: Minimal image, non-root user, `ca-certificates`.
 
 ## Tools Used
 
-- **Go:** The application is written in Go for its excellent concurrency support and robust standard library
-- **Docker:** Used for containerization and easy deployment
-- **BurntSushi/toml:** Go library for parsing TOML configuration files
-- **Discord Webhooks:** For sending notifications about version changes
+*   **Go:** Programming language.
+*   **Docker:** Containerization.
+*   **BurntSushi/toml:** TOML parsing.
+*   **fsnotify/fsnotify:** File system notifications.
+*   **Uber Zap:** Structured logging.
+*   **Discord Webhooks:** For notifications.
 
-## Development Setup
+## Deployment (Docker Hub)
 
-Before you begin, ensure you have the following tools installed:
+The easiest way to deploy the application is to use the pre-built image from Docker Hub: `brentdboer/atm10-version-notifier`.
 
-* **Go:** You need Go installed to build the application. You can download it from [https://go.dev/dl/](https://go.dev/dl/). (It's recommended to use a recent version of Go).
-* **Docker:** Docker is required to build and run the container. Install Docker Engine and Docker Compose (optional, but recommended) from [https://docs.docker.com/get-docker/](https://docs.docker.com/get-docker/).
-
-### Building the Docker Image
-
-1. **Clone the repository:**
-
-    ```bash
-    git clone [repository_url] # Replace with your repository URL
-    cd [repository_directory] # Replace with your repository directory name
-    ```
-
-2. **Build the Docker image:**
-
-    ```bash
-    docker build -t atm10-version-monitor .
-    ```
-
-## Usage
-
-To run the ATM10 Modpack Version Monitor container, use the following `docker run` command:
+### Docker Run Command
 
 ```bash
 docker run -d \
@@ -51,68 +40,75 @@ docker run -d \
     -v atm10_data:/data:ro \
     -v atm10-version-monitor-reference-data:/reference-data \
     -e DISCORD_WEBHOOK_URL="YOUR_DISCORD_WEBHOOK_URL" \
-    -e FILE_CHECK_INTERVAL_SECONDS="60" \
-    -e RECHECK_TIMEOUT_SECONDS="30" \
     -e LOG_LEVEL="INFO" \
-    atm10-version-monitor
+    brentdboer/atm10-version-notifier
 ```
+
+**Explanation:**
+
+*   `-d`: Runs in detached mode.
+*   `--name`: Assigns a name.
+*   `-v atm10_data:/data:ro`: Mounts your ATM10 data volume (read-only).  **Important:** This volume *must* contain `/data/config/bcc-common.toml`.
+*   `-v atm10-version-monitor-reference-data:/reference-data`: Mounts a volume for the persistent `version_reference.json` file (read-write).
+*   `-e DISCORD_WEBHOOK_URL="..."`: Sets the required Discord webhook URL. *Replace `YOUR_DISCORD_WEBHOOK_URL` with your actual URL.*
+*   `-e LOG_LEVEL="INFO"`: Sets the logging level (INFO, DEBUG, WARN, ERROR).
+*   `brentdboer/atm10-version-notifier`:  Pulls and runs the image from Docker Hub.
 
 ### Volume Mounts
 
-The application requires two volume mounts:
-
-1. **ATM10 Data Volume** (`atm10_data:/data:ro`):
-   - Contains the modpack configuration files
-   - Mounted as read-only for safety
-   - Expected to contain `/data/config/bcc-common.toml`
-
-2. **Reference Data Volume** (`atm10-version-monitor-reference-data:/reference-data`):
-   - Stores the version reference file
-   - Must be writable by the application
-   - Contains `/reference-data/version_reference.json`
+*   **`atm10_data:/data:ro` (Read-Only):** Your ATM10 server data.  The app expects `/data/config/bcc-common.toml` here.
+*   **`atm10-version-monitor-reference-data:/reference-data` (Read-Write):** Stores the `version_reference.json` file (last known version).
 
 ### Environment Variables
 
-The application can be configured using the following environment variables:
-
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `DISCORD_WEBHOOK_URL` | Discord webhook URL for notifications | - | Yes |
-| `FILE_CHECK_INTERVAL_SECONDS` | Interval between file checks (in seconds) | `60` | No |
-| `RECHECK_TIMEOUT_SECONDS` | Timeout after file modification before re-reading (in seconds) | `30` | No |
-| `LOG_LEVEL` | Logging level (DEBUG, INFO, WARN, ERROR) | `INFO` | No |
-| `CONFIG_FILE_PATH` | Path to the bcc-common.toml file | `/data/config/bcc-common.toml` | No |
-| `REFERENCE_FILE_PATH` | Path to the version reference file | `/reference-data/version_reference.json` | No |
+| Variable              | Description                                        | Default                                  | Required |
+| --------------------- | -------------------------------------------------- | ---------------------------------------- | -------- |
+| `DISCORD_WEBHOOK_URL` | Your Discord webhook URL.                          | *None*                                   | Yes      |
+| `LOG_LEVEL`           | Logging level (DEBUG, INFO, WARN, ERROR, FATAL).   | `INFO`                                   | No       |
+| `CONFIG_FILE_PATH`    | Path to `bcc-common.toml` *within the container*.  | `/data/config/bcc-common.toml`           | No       |
+| `REFERENCE_FILE_PATH` | Path to the reference file *within the container*. | `/reference-data/version_reference.json` | No       |
 
 ### Logging
 
-The application uses a structured logging system with the following features:
+*   **Levels:** DEBUG, INFO, WARN, ERROR, FATAL (controlled by `LOG_LEVEL`).
+*   **Output:**
+    *   Standard Output (stdout): Human-readable.
+    *   `app.log` (in the container): JSON format.
+*   **Structure:** Includes fields like `time`, `level`, `caller`, `msg`.
+*   **Security:** Masks sensitive information (webhook URLs).
 
-- **Log Levels**: Supports multiple log levels (DEBUG, INFO, WARN, ERROR)
-- **Output**: Logs are written to both stdout and a log file (`app.log`)
-- **Format**: Log entries include timestamp, log level, and source file information
-- **Persistence**: Log files are stored in the container and can be accessed via Docker logs
+**Viewing Logs:**
 
-Example log output:
-```
-2024/03/21 15:04:05 [INFO] main.go:42: ATM10 Modpack Version Monitor started
-2024/03/21 15:04:05 [DEBUG] main.go:50: File check interval: 60 seconds, Recheck timeout: 30 seconds
-2024/03/21 15:04:06 [INFO] main.go:65: Version change detected for ATM10! Old: 0.1.0, New: 0.1.1
-```
-
-You can view the logs using:
 ```bash
-# View container logs
-docker logs atm10-version-monitor
-
-# Follow log output
-docker logs -f atm10-version-monitor
+docker logs -f atm10-version-monitor  # Real-time
+docker logs atm10-version-monitor     # Past logs
 ```
+
+## Development Setup (Optional)
+
+If you want to build the image yourself or contribute to the project:
+
+**Prerequisites:**
+
+*   Go (1.21+): [https://go.dev/dl/](https://go.dev/dl/)
+*   Docker: [https://docs.docker.com/get-docker/](https://docs.docker.com/get-docker/)
+
+**Building:**
+
+1.  Clone the repository:
+    ```bash
+    git clone [repository_url]
+    cd [repository_directory]
+    ```
+2.  Build the Docker image:
+    ```bash
+    docker build -t atm10-version-monitor .
+    ```
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome!  Submit a Pull Request with well-documented, error-handled Go code.
