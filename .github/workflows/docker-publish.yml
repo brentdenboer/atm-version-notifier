@@ -1,0 +1,26 @@
+name: Docker Publish
+
+on:
+  push:
+    branches:
+      - main # Trigger on pushes to the main branch
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Build Docker image
+      run: docker build -t brentdboer/atm10-version-notifier:latest . # Using Docker Hub repo name here
+
+    - name: Docker Hub Login
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }} # Or DOCKERHUB_PASSWORD
+
+    - name: Push Docker image to Docker Hub
+      run: docker push brentdboer/atm10-version-notifier:latest # Using Docker Hub repo name again
