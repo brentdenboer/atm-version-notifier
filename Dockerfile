@@ -28,8 +28,9 @@ LABEL maintainer="ATM10 Version Monitor Team" \
 # Add ca-certificates for HTTPS requests
 RUN apk --no-cache add ca-certificates
 
-# Create non-root user
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+# Create user with UID 1000 and GID 1000 to match itzg/minecraft-server
+RUN addgroup -g 1000 -S appgroup && \
+    adduser -u 1000 -S appuser -G appgroup
 
 WORKDIR /app
 
