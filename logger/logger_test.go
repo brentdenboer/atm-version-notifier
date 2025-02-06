@@ -99,7 +99,7 @@ func TestMultipleWriters(t *testing.T) {
 	logger.SetLevel(INFO)
 
 	testMessage := "test multiple writers"
-	logger.Info(testMessage)
+	logger.Info("%s", testMessage)
 
 	for i, buf := range []*bytes.Buffer{&buf1, &buf2} {
 		output := buf.String()
@@ -116,7 +116,7 @@ func TestDefaultLogger(t *testing.T) {
 
 	// Test default logger functions
 	testMessage := "test default logger"
-	Info(testMessage)
+	Info("%s", testMessage)
 
 	// Check the output
 	output := buf.String()
@@ -136,7 +136,7 @@ func TestSetOutput(t *testing.T) {
 	SetOutput(&buf)
 
 	testMessage := "test set output"
-	Info(testMessage)
+	Info("%s", testMessage)
 
 	output := buf.String()
 	if !strings.Contains(output, testMessage) {
@@ -160,7 +160,7 @@ func TestFatal(t *testing.T) {
 	}()
 
 	testMessage := "fatal error"
-	logger.Fatal(testMessage)
+	logger.Fatal("%s", testMessage)
 
 	// We shouldn't reach this point, but if we do, check the output
 	output := buf.String()

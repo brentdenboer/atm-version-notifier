@@ -112,7 +112,8 @@ func (l *Logger) Error(format string, args ...interface{}) {
 
 // Fatal logs a fatal message and exits
 func (l *Logger) Fatal(format string, args ...interface{}) {
-	l.log(FATAL, format, args...)
+	const fatalFormat = "%s"
+	l.log(FATAL, fatalFormat, fmt.Sprintf(format, args...))
 	if l.testing {
 		panic("fatal error in testing mode")
 	}

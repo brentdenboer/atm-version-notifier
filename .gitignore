@@ -26,6 +26,7 @@ go.work.sum
 
 # implementation
 IMPLEMENTATION.md
+repomix*
 
 # test data
 test/data/
